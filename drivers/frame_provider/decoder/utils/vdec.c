@@ -2657,8 +2657,10 @@ bool vdec_has_more_input(struct vdec_s *vdec)
 			return READ_VREG(VLD_MEM_VIFIFO_WP) !=
 				STBUF_READ(&vdec->vbuf, get_wp);
 		else {
+			struct vdec_s *owner = vdec->master ? vdec->master : vdec;
+
 			return (READ_VREG(HEVC_STREAM_WR_PTR) & ~0x3) !=
-				(STBUF_READ(&vdec->vbuf, get_wp) & ~0x3);
+				(STBUF_READ(&owner->vbuf, get_wp) & ~0x3);
 		}
 	}
 }
