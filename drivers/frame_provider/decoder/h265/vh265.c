@@ -1675,6 +1675,8 @@ struct hevc_state_s {
 	unsigned char start_decoding_flag;
 	unsigned char rps_set_id;
 	unsigned char eos;
+	/* this run found the input empty with nothing left to fetch */
+	bool input_ended;
 	int pic_decoded_lcu_idx;
 	u8 over_decode;
 	u8 empty_flag;
@@ -2696,8 +2698,7 @@ static void backup_decode_state(struct hevc_state_s *hevc)
 
 static void restore_decode_state(struct hevc_state_s *hevc)
 {
-	struct vdec_s *vdec = hw_to_vdec(hevc);
-	if (!vdec_has_more_input(vdec)) {
+	if (hevc->input_ended) {
 		hevc->pic_decoded_lcu_idx =
 			READ_VREG(HEVC_PARSER_LCU_START) & 0xffffff;
 		return;
@@ -11561,6 +11562,7 @@ static irqreturn_t vh265_isr_thread_fn(int irq, void *data)
 					(data_resend_policy & 0x1)) {
 					hevc->dec_result = DEC_RESULT_AGAIN;
 					amhevc_stop();
+					hevc->input_ended = !vdec_has_more_input(vdec);
 					restore_decode_state(hevc);
 				} else
 					hevc->dec_result = DEC_RESULT_GET_DATA;
@@ -11593,6 +11595,7 @@ static irqreturn_t vh265_isr_thread_fn(int irq, void *data)
 			} else {
 				hevc->dec_result = DEC_RESULT_AGAIN;
 				amhevc_stop();
+				hevc->input_ended = !vdec_has_more_input(vdec);
 				restore_decode_state(hevc);
 			}
 
@@ -14689,7 +14692,7 @@ done_end:
 			stream base: stream buf empty or timeout
 			frame base: vdec_prepare_input fail
 		*/
-		if (!vdec_has_more_input(vdec)) {
+		if (hevc->input_ended) {
 			hevc->dec_result = DEC_RESULT_EOS;
 			vdec_schedule_work(&hevc->work);
 			return;
@@ -15246,6 +15249,7 @@ static void run(struct vdec_s *vdec, unsigned long mask,
 	unsigned char check_sum = 0;
 
 	run_count[hevc->index]++;
+	hevc->input_ended = false;
 	hevc->vdec_cb_arg = arg;
 	hevc->vdec_cb = callback;
 	hevc->aux_data_dirty = 1;
@@ -15283,6 +15287,7 @@ static void run(struct vdec_s *vdec, unsigned long mask,
 		r = hevc->data_size;
 		if ((r < 0) || (hevc->chunk == NULL)) {
 			input_empty[hevc->index]++;
+			hevc->input_ended = !vdec_has_more_input(vdec);
 			hevc->dec_result = DEC_RESULT_AGAIN;
 			hevc_print(hevc, PRINT_FLAG_VDEC_DETAIL,
 				"%s: Insufficient data, r %d, hevc->chunk %p\n", __func__, r, hevc->chunk);
@@ -15300,6 +15305,7 @@ static void run(struct vdec_s *vdec, unsigned long mask,
 		r = vdec_prepare_input(vdec, &hevc->chunk);
 		if (r < 0) {
 			input_empty[hevc->index]++;
+			hevc->input_ended = !vdec_has_more_input(vdec);
 			hevc->dec_result = DEC_RESULT_AGAIN;
 			hevc_print(hevc, PRINT_FLAG_VDEC_DETAIL,
 				"ammvdec_vh265: Insufficient data\n");
