@@ -15141,7 +15141,8 @@ static unsigned long run_ready(struct vdec_s *vdec, unsigned long mask)
 			(int)(get_jiffies_64() - hevc->sc_start_time) * 1000/HZ);
 	}
 	if (vdec_stream_based(vdec)
-			&& pre_decode_buf_level != 0) {
+			&& pre_decode_buf_level != 0
+			&& !vdec->input.eos) {
 			u32 rp, wp, level;
 
 			rp = STBUF_READ(&vdec->vbuf, get_rp);
