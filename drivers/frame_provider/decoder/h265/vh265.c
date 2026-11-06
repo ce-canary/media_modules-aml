@@ -1677,6 +1677,8 @@ struct hevc_state_s {
 	unsigned char eos;
 	/* this run found the input empty with nothing left to fetch */
 	bool input_ended;
+	/* base layer: write pointer the stream ended on */
+	u32 eos_wp;
 	int pic_decoded_lcu_idx;
 	u8 over_decode;
 	u8 empty_flag;
@@ -2820,6 +2822,7 @@ static void hevc_init_stru(struct hevc_state_s *hevc,
 	hevc->decode_timeout_count = 0;
 	hevc->timeout_num = 0;
 	hevc->eos = 0;
+	hevc->stat &= ~STAT_EOS;
 	hevc->pic_decoded_lcu_idx = -1;
 	hevc->over_decode = 0;
 	hevc->used_4k_num = -1;
@@ -7281,6 +7284,21 @@ static void end_layer(struct hevc_state_s *hevc)
 	hevc->eos = 1;
 	flush_layer(hevc);
 	clear_poc_flag(hevc);
+}
+
+static void resume_layer(struct hevc_state_s *hevc)
+{
+	hevc->stat &= ~STAT_EOS;
+	hevc->eos = 0;
+}
+
+static bool input_resumed(struct hevc_state_s *hevc, struct vdec_s *vdec)
+{
+	if (!vdec->input.eos)
+		return true;
+
+	return vdec_stream_based(vdec) &&
+		(STBUF_READ(&vdec->vbuf, get_wp) & ~0x3) != hevc->eos_wp;
 }
 
 /* only when we decoded one field or one frame,
@@ -13012,6 +13030,9 @@ int vh265_dec_status(struct vdec_info *vstatus)
 	else
 		vstatus->status = hevc->stat | hevc->fatal_error;
 
+	if (hevc->eos && input_resumed(hevc, vdec))
+		vstatus->status &= ~STAT_EOS;
+
 	if (hevc->is_dv_flag)
 		vstatus->status =  vstatus->status | DECODER_REPORT_DV_FLAG;
 
@@ -14743,6 +14764,8 @@ done_end:
 		}
 	} else if (hevc->dec_result == DEC_RESULT_EOS) {
 		struct hevc_state_s *partner = dual_partner(vdec);
+		struct hevc_state_s *base =
+			(partner && vdec->master) ? partner : hevc;
 
 #ifdef CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION
 		if ((vdec_dual(vdec)) && aux_data_is_available(hevc))
@@ -14758,6 +14781,8 @@ done_end:
 		end_layer(hevc);
 		if (partner && vdec->master)
 			end_layer(partner);
+		base->eos_wp = READ_VREG(HEVC_STREAM_WR_PTR) & ~0x3;
+		base->start_parser_type = 0;
 		/* userspace ends its drain on this, so only after both flushes */
 		hevc->stat |= STAT_EOS;
 		if (partner)
@@ -14766,6 +14791,8 @@ done_end:
 		if (hevc->is_used_v4l)
 			notify_v4l_eos(hw_to_vdec(hevc));
 #ifdef CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION
+		/* the next sequence starts on the base layer */
+		hevc->switch_dvlayer_flag = base != hevc;
 		hevc->shift_byte_count_lo
 			= READ_VREG(HEVC_SHIFT_BYTE_COUNT);
 		if (vdec->slave) {
@@ -15131,8 +15158,15 @@ static unsigned long run_ready(struct vdec_s *vdec, unsigned long mask)
 	if (hevc->fatal_error & DECODER_FATAL_ERROR_NO_MEM)
 		return 0;
 
-	if (hevc->eos)
-		return 0;
+	if (hevc->eos) {
+		struct hevc_state_s *partner = dual_partner(vdec);
+
+		if (!input_resumed(hevc, vdec))
+			return 0;
+		resume_layer(hevc);
+		if (partner)
+			resume_layer(partner);
+	}
 	if (hevc->timeout_processing &&
 	    (work_pending(&hevc->work) ||
 	    work_busy(&hevc->work) ||
