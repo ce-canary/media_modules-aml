@@ -7256,6 +7256,13 @@ static void check_pic_decoded_error(struct hevc_state_s *hevc,
 	}
 }
 
+static struct hevc_state_s *dual_partner(struct vdec_s *vdec)
+{
+	struct vdec_s *partner = vdec->slave ? vdec->slave : vdec->master;
+
+	return partner ? partner->private : NULL;
+}
+
 static void flush_layer(struct hevc_state_s *hevc)
 {
 	struct PIC_s *pic;
@@ -7267,6 +7274,13 @@ static void flush_layer(struct hevc_state_s *hevc)
 	flush_output(hevc, pic);
 	hevc->decoded_poc = INVALID_POC; /* already call flush_output */
 	hevc->decoding_pic = NULL;
+}
+
+static void end_layer(struct hevc_state_s *hevc)
+{
+	hevc->eos = 1;
+	flush_layer(hevc);
+	clear_poc_flag(hevc);
 }
 
 /* only when we decoded one field or one frame,
@@ -14728,21 +14742,26 @@ done_end:
 			}
 		}
 	} else if (hevc->dec_result == DEC_RESULT_EOS) {
-		struct PIC_s *pic;
-		hevc->stat |= STAT_EOS;
-		hevc->eos = 1;
+		struct hevc_state_s *partner = dual_partner(vdec);
+
 #ifdef CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION
 		if ((vdec_dual(vdec)) && aux_data_is_available(hevc))
 			if (hevc->decoding_pic)
 				dolby_get_meta(hevc);
 #endif
-		check_pic_decoded_error(hevc,
-			hevc->pic_decoded_lcu_idx);
-		pic = get_pic_by_POC(hevc, hevc->curr_POC);
 		hevc_print(hevc, PRINT_FLAG_VDEC_STATUS,
-			"%s: end of stream, last dec poc %d => 0x%pf\n",
-			__func__, hevc->curr_POC, pic);
-		flush_output(hevc, pic);
+			"%s: end of stream, last dec poc %d\n",
+			__func__, hevc->curr_POC);
+		/* el first: a bl picture takes its pair when it is shown */
+		if (partner && vdec->slave)
+			end_layer(partner);
+		end_layer(hevc);
+		if (partner && vdec->master)
+			end_layer(partner);
+		/* userspace ends its drain on this, so only after both flushes */
+		hevc->stat |= STAT_EOS;
+		if (partner)
+			partner->stat |= STAT_EOS;
 		/* dummy vf with eos flag to backend */
 		if (hevc->is_used_v4l)
 			notify_v4l_eos(hw_to_vdec(hevc));
