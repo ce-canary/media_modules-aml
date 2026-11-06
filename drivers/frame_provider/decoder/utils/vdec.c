@@ -2085,6 +2085,9 @@ static void vdec_sync_input_write(struct vdec_s *vdec)
 			} else {
 				STBUF_WRITE(&vdec->vbuf, set_wp,
 					STBUF_READ(&vdec->master->vbuf, get_wp));
+				/* the register still holds the master's last run */
+				WRITE_VREG(HEVC_STREAM_WR_PTR,
+					STBUF_READ(&vdec->vbuf, get_wp));
 			}
 		} else {
 			WRITE_VREG(HEVC_STREAM_WR_PTR,
