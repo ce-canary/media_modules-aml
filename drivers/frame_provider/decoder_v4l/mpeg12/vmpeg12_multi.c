@@ -1971,9 +1971,9 @@ static int prepare_display_buf(struct vdec_mpeg12_hw_s *hw,
 		vf->index = index;
 		set_frame_info(hw, vf);
 		if (field_num > 1) {
-			vf->duration = vf->duration / field_num;
 			vf->duration_pulldown = (field_num == 3) ?
-				(vf->duration >> 1):0;
+				(vf->duration >> 1) - vf->duration / 3 : 0;
+			vf->duration = vf->duration / field_num;
 			type = nv_order;
 			if (i == 1) /* second field*/
 				type |= (first_field_type == VIDTYPE_INTERLACE_TOP) ?
