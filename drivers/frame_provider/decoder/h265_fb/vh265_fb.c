@@ -16462,6 +16462,8 @@ done_end:
 			"%s: end of stream, last dec poc %d => 0x%pf\n",
 			__func__, hevc->curr_POC, pic);
 		flush_output(hevc, pic);
+		/* userspace ends its drain on this, so only after the flush */
+		hevc->stat |= STAT_EOS;
 
 #ifdef CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION
 		hevc->shift_byte_count_lo
