@@ -2948,7 +2948,6 @@ static void vmpeg12_work_implement(struct vdec_mpeg12_hw_s *hw,
 			hw->stat &= ~STAT_ISR_REG;
 		}
 	} else if (hw->dec_result == DEC_RESULT_EOS) {
-		hw->stat |= STAT_EOS;
 		if (hw->stat & STAT_VDEC_RUN) {
 			amvdec_stop();
 			hw->stat &= ~STAT_VDEC_RUN;
@@ -2958,6 +2957,8 @@ static void vmpeg12_work_implement(struct vdec_mpeg12_hw_s *hw,
 		hw->chunk = NULL;
 		vdec_clean_input(vdec);
 		flush_output(hw);
+		/* userspace ends its drain on this, so only after the flush */
+		hw->stat |= STAT_EOS;
 		notify_v4l_eos(vdec);
 
 		debug_print(DECODE_ID(hw), 0,

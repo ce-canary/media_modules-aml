@@ -9920,7 +9920,6 @@ static void avs3_work_implement(struct AVS3Decoder_s *dec)
 		avs3_print(dec, 0,
 			"%s: end of stream\n",
 			__func__);
-		dec->stat |= STAT_EOS;
 		dec->eos = 1;
 		if (dec->avs3_dec.cur_pic != NULL) {
 			avs3_bufmgr_post_process(&dec->avs3_dec);
@@ -9930,6 +9929,8 @@ static void avs3_work_implement(struct AVS3Decoder_s *dec)
 		avs3_ctx->info.pic_header.decode_order_index =
 			avs3_ctx->info.pic_header.decode_order_index + DOI_CYCLE_LENGTH;
 		avs3_prepare_display_buf(dec);
+		/* userspace ends its drain on this, so only after the flush */
+		dec->stat |= STAT_EOS;
 		vdec_vframe_dirty(hw_to_vdec(dec), dec->chunk);
 		vdec_code_rate(vdec, READ_VREG(HEVC_SHIFT_BYTE_COUNT) - dec->start_shift_bytes);
 	} else if (dec->dec_result == DEC_RESULT_FORCE_EXIT) {
