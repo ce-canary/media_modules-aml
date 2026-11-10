@@ -12048,6 +12048,8 @@ static void av1_work_implement(struct AV1HW_s *hw)
 			__func__);
 		hw->eos = 1;
 		av1_postproc(hw);
+		/* userspace ends its drain on this, so only after the flush */
+		hw->stat |= STAT_EOS;
 
 		vdec_vframe_dirty(hw_to_vdec(hw), hw->chunk);
 		vdec_code_rate(vdec, READ_VREG(HEVC_SHIFT_BYTE_COUNT) - hw->start_shift_bytes);
