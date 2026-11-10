@@ -11600,10 +11600,11 @@ static void vp9_work_implement(struct VP9Decoder_s *pbi)
 		vp9_print(pbi, PRINT_FLAG_VDEC_STATUS,
 			"%s: end of stream\n",
 			__func__);
-		pbi->stat |= STAT_EOS;
 		pbi->eos = 1;
 		if (cm->new_fb_idx != INVALID_IDX)
 			vp9_bufmgr_postproc(pbi);
+		/* userspace ends its drain on this, so only after the flush */
+		pbi->stat |= STAT_EOS;
 
 		notify_v4l_eos(hw_to_vdec(pbi));
 
