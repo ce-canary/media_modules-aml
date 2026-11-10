@@ -11183,9 +11183,10 @@ static void av1_work_implement(struct AV1HW_s *hw)
 		av1_print(hw, PRINT_FLAG_VDEC_STATUS,
 			"%s: end of stream\n",
 			__func__);
-		hw->stat |= STAT_EOS;
 		hw->eos = 1;
 		av1_postproc(hw);
+		/* userspace ends its drain on this, so only after the flush */
+		hw->stat |= STAT_EOS;
 
 		notify_v4l_eos(hw_to_vdec(hw));
 

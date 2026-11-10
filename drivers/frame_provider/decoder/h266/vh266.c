@@ -9989,11 +9989,12 @@ done_end:
 			}
 		}
 	} else if (hevc->dec_result == DEC_RESULT_EOS) {
-		hevc->stat |= STAT_EOS;
 		hevc->eos = 1;
 		check_pic_decoded_error(hevc,
 			hevc->pic_decoded_lcu_idx);
 		flush_output(hevc);
+		/* userspace ends its drain on this, so only after the flush */
+		hevc->stat |= STAT_EOS;
 		/* dummy vf with eos flag to backend */
 		notify_v4l_eos(hw_to_vdec(hevc));
 		mutex_lock(&hevc->chunks_mutex);
