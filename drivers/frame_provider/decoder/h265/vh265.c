@@ -1677,6 +1677,7 @@ struct hevc_state_s {
 	unsigned char eos;
 	/* this run found the input empty with nothing left to fetch */
 	bool input_ended;
+	u32 end_wp;
 	int pic_decoded_lcu_idx;
 	u8 over_decode;
 	u8 empty_flag;
@@ -7269,6 +7270,19 @@ static void end_layer(struct hevc_state_s *hevc)
 	hevc->decoded_poc = INVALID_POC; /* already call flush_output */
 	hevc->decoding_pic = NULL;
 	clear_poc_flag(hevc);
+}
+
+/* the end holds while the mark is set and no byte follows it */
+static bool input_after_end(struct hevc_state_s *hevc)
+{
+	struct vdec_s *vdec = hw_to_vdec(hevc);
+	struct vdec_s *pair = vdec->slave ? vdec->slave : vdec->master;
+	struct vdec_s *owner = vdec->master ? vdec->master : vdec;
+
+	if (!vdec_stream_based(vdec))
+		return false;
+	return !vdec->input.eos || (pair && !pair->input.eos) ||
+		(STBUF_READ(&owner->vbuf, get_wp) & ~0x3) != hevc->end_wp;
 }
 
 /* only when we decoded one field or one frame,
@@ -13011,6 +13025,8 @@ int vh265_dec_status(struct vdec_info *vstatus)
 		vstatus->status = hevc->stat | hevc->fatal_error | DECODER_ES_INPUT_UNDERRUN;
 	else
 		vstatus->status = hevc->stat | hevc->fatal_error;
+	if (input_after_end(hevc))
+		vstatus->status &= ~STAT_EOS;
 
 	if (hevc->is_dv_flag)
 		vstatus->status =  vstatus->status | DECODER_REPORT_DV_FLAG;
@@ -14707,7 +14723,7 @@ done_end:
 			stream base: stream buf empty or timeout
 			frame base: vdec_prepare_input fail
 		*/
-		if (hevc->input_ended) {
+		if (hevc->input_ended && !vdec_has_more_input(vdec)) {
 			hevc->dec_result = DEC_RESULT_EOS;
 			vdec_schedule_work(&hevc->work);
 			return;
@@ -14759,6 +14775,9 @@ done_end:
 		end_layer(hevc);
 		if (partner && vdec->master)
 			end_layer(partner);
+		hevc->end_wp = READ_VREG(HEVC_STREAM_WR_PTR) & ~0x3;
+		if (partner)
+			partner->end_wp = hevc->end_wp;
 		/* userspace ends its drain on this, so only after both flushes */
 		hevc->stat |= STAT_EOS;
 		if (partner)
@@ -15132,8 +15151,21 @@ static unsigned long run_ready(struct vdec_s *vdec, unsigned long mask)
 	if (hevc->fatal_error & DECODER_FATAL_ERROR_NO_MEM)
 		return 0;
 
-	if (hevc->eos)
-		return 0;
+	if (hevc->eos) {
+		struct vdec_s *pair = vdec->slave ? vdec->slave : vdec->master;
+		struct hevc_state_s *partner = pair ? pair->private : NULL;
+
+		if (!input_after_end(hevc))
+			return 0;
+		hevc_print(hevc, PRINT_FLAG_VDEC_STATUS,
+			"%s: input after end of stream, resume\n", __func__);
+		hevc->eos = 0;
+		hevc->stat &= ~STAT_EOS;
+		if (partner) {
+			partner->eos = 0;
+			partner->stat &= ~STAT_EOS;
+		}
+	}
 	if (hevc->timeout_processing &&
 	    (work_pending(&hevc->work) ||
 	    work_busy(&hevc->work) ||
