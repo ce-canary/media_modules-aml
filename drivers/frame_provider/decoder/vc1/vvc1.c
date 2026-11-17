@@ -150,6 +150,7 @@ static u32 stat;
 static u32 buf_size = 32 * 1024 * 1024;
 static u32 buf_offset;
 static u32 avi_flag;
+static u32 dts_stamps;
 static u32 unstable_pts_debug;
 static u32 unstable_pts;
 static u32 vvc1_ratio;
@@ -470,6 +471,17 @@ static int update_reference(struct vdec_vc1_hw_s *hw,	int index)
 		hw->ref_use[hw->refs[0]]--; 	//old ref0 unused
 		hw->refs[0] = hw->refs[1];
 		hw->refs[1] = index;
+		/* with decode stamps an anchor takes its releasing packet's decode time */
+		if (dts_stamps &&
+			pts_pickout_between_us64(PTS_TYPE_VIDEO, hw->pics[hw->refs[0]].offset,
+				hw->pics[index].offset, &hw->pics[hw->refs[0]].pts,
+				&hw->pics[hw->refs[0]].pts64) == 0) {
+			hw->pics[hw->refs[0]].pts_valid = 1;
+		} else if (dts_stamps && hw->pics[index].pts_valid) {
+			hw->pics[hw->refs[0]].pts = hw->pics[index].pts;
+			hw->pics[hw->refs[0]].pts64 = hw->pics[index].pts64;
+			hw->pics[hw->refs[0]].pts_valid = 1;
+		}
 		index = hw->refs[0];
 	}
 	vc1_print(0, VC1_DEBUG_DETAIL,"%s: hw->refs[0] = %d, hw->refs[1] = %d\n", __func__, hw->refs[0], hw->refs[1]);
@@ -1594,6 +1606,8 @@ static void vvc1_local_init(bool is_reset)
 	vvc1_ratio = (vvc1_amstream_dec_info.ratio >> DISP_RATIO_ASPECT_RATIO_BIT);
 
 	avi_flag = (unsigned long) vvc1_amstream_dec_info.param & 0x01;
+	/* decode times of a stream that can reorder (KEYFRAME_PTS_ONLY) */
+	dts_stamps = ((unsigned long) vvc1_amstream_dec_info.param & 0x100) >> 8;
 
 	unstable_pts = (((unsigned long) vvc1_amstream_dec_info.param & 0x40) >> 6);
 	if (unstable_pts_debug == 1) {
